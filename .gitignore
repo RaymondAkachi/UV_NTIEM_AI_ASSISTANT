@@ -1,0 +1,49 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, generated with 'go test -c'
+*.test
+
+# Output of 'go build'
+*.out
+
+# Dependency directories (remove the 'vendor/' if you are using Go modules in Go 1.14+ and prefer not to commit vendor)
+# vendor/
+
+# Go workspace binary
+# If you use 'go install' to install binaries into your GOBIN path, ignore them.
+# /go_bin/ # Example if you set up a local bin folder
+
+# Environment variables
+.env
+.env.*
+
+# IDE and editor files
+.vscode/        # VS Code settings, if you don't want to share them
+.idea/          # IntelliJ IDEA settings
+*.iml           # IntelliJ IDEA module file
+*.swp           # Vim swap files
+*~              # Temporary files
+*.sublime-project
+*.sublime-workspace
+.DS_Store       # macOS specific files
+Thumbs.db       # Windows specific files
+
+# Python virtual environment
+# Common names for Python virtual environments
+venv/
+.venv/
+env/
+.env/
+*__pycache__    # Python compiled bytecode
+*.pyc
+voice_notes
+vector_cache/
+
+*.venv
+# Any other local temporary or specific files
+# my_temp_file.txt
