@@ -8,8 +8,8 @@ from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI  # Replace with your preferred LLM
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.server_api import ServerApi
-from models import User
-from database import engine
+from app.db_logic.models import User
+from app.db_logic.database import engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, UTC
 # import asyncio  # For testing purposes
@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from settings import settings
 from dotenv import load_dotenv
 
-load_dotenv('.env')
+load_dotenv()
 
 ####### GET QUESTION HISTORY #######
 # MongoDB connection setup
