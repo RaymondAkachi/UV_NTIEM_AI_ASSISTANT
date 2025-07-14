@@ -3,7 +3,7 @@ import time
 # import asyncio
 import os
 from botocore.exceptions import ClientError, NoCredentialsError
-from settings import settings
+from app.settings import settings
 
 
 class VoiceCreation:
@@ -59,8 +59,8 @@ class VoiceCreation:
             )
 
             # Save the audio to a file
-            # output_file = f"audio/response_{int(time.time())}.mp3"
-            output_file = f"voices/response_{int(time.time())}.mp3"
+            output_file = f"audio/response_{int(time.time())}.mp3"
+            # output_file = f"response_{int(time.time())}.mp3"
             with open(output_file, 'wb') as out:
                 out.write(response['AudioStream'].read())
 

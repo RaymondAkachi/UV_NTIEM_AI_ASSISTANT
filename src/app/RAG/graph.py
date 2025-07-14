@@ -113,7 +113,7 @@ if __name__ == "__main__":
                 # "Who are you"
                 # "What is Apostle Jerry's Eze's minstry?",
                 # "Who is Jesus Christ?"
-                "What does Apostle Uche Raymond hail from?"
+                "How can i book an appointment with Apostle Uche Raymond"
             ]
             validator = TopicValidator()
             for question in questions:

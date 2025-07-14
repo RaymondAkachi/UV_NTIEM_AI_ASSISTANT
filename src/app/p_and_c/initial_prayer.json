@@ -1,0 +1,49 @@
+{
+    "prayer_info": {
+        "Marriage": {
+            "prayer": "verses: 1 Corinthians 13:4-7, Ephesians 5:25-33, Ecclesiastes 4:12\n\nprayer: Heavenly Father, bless this marriage with Your love, patience, and unity. Strengthen the bond between husband and wife, guiding them to honor and cherish each other as You intend. May their union be a reflection of Your grace and a testimony of Your faithfulness. Amen.",
+            "contact": "Church Marriage Department: +44 7368 877315"
+        },
+        "Career": {
+            "prayer": "verses: Colossians 3:23-24, Proverbs 16:3, Psalm 90:17\n\nprayer: Lord, guide me in my career and grant me wisdom to excel in my work. Open doors of opportunity and establish the work of my hands. Help me to serve with integrity and glorify You in all I do. Amen.",
+            "contact": "Church Career Prayerline: +234 803 223 5209"
+        },
+        "Finances": {
+            "prayer": "verses: Philippians 4:19, Malachi 3:10, Deuteronomy 8:18\n\nprayer: God of provision, I trust You to meet all my financial needs according to Your riches. Grant me wisdom to steward resources faithfully and open windows of blessing to overflow in my life. Remove anxiety and lead me to prosperity for Your glory. Amen.",
+            "contact": "Church Finances Prayerline: +234 803 223 5209"
+        },
+        "Health": {
+            "prayer": "verses: Jeremiah 30:17, Psalm 30:2, 3 John 1:2\n\nprayer: Heavenly Father, I seek Your healing touch for my body, mind, and soul. Restore my health, grant strength to my frame, and guide those providing care. May Your peace and wholeness envelop me, in Jesus’ name. Amen.",
+            "contact": "Church Health Prayerline. Call: +234 803 319 4594"
+        },
+        "Children": {
+            "prayer": "verses: Proverbs 22:6, Psalm 127:3-5, Isaiah 54:13\n\nprayer: Lord, I lift up my children to You, asking for Your protection and guidance. Train them in Your ways, fill them with wisdom, and let them grow in faith and favor. Surround them with Your love and keep them safe. Amen.",
+            "contact": "Church Children Prayerline: +234 803 223 5209"
+        },
+        "Direction": {
+            "prayer": "verses: Proverbs 3:5-6, Psalm 32:8, James 1:5\n\nprayer: Father, I seek Your guidance for my path. Direct my steps, grant me clarity, and fill me with Your wisdom. Let Your will be my guide, and may I walk confidently in Your purpose for my life. Amen.",
+            "contact": "Church Direction Prayerline: +234 803 223 5209"
+        },
+        "Spiritual_Attack": {
+            "prayer": "verses: Ephesians 6:12, Psalm 91:1-4, James 4:7\n\nprayer: Almighty God, I stand firm in Your strength against all spiritual attacks. Clothe me with Your armor, protect me from evil, and grant me victory through the power of Jesus’ name. Let Your peace guard my heart. Amen.",
+            "contact": "Focus on the prayer: +234 803 223 5209"
+        },
+        "Others": {
+            "prayer": "verses: Philippians 4:6-7, 1 Thessalonians 5:17, Matthew 7:7\n\nprayer: Loving Father, I bring my unspoken needs before You, trusting in Your infinite wisdom. Hear my heart’s cry, grant me peace, and answer according to Your perfect will. Help me to trust and pray continually. Amen.",
+            "contact": "Prayer Helpline: +234 803 223 5209"
+        }
+    },
+    "prayer_details": "Please select out of these options what exactly you would like prayer for.\n\n\n1. Marriage\n\n2. Career\n\n3. Finances\n\n4. Health\n\n5. Children\n\n6. Direction\n\n7. Spiritual Attack\n\n8. Others",
+    "prayer_list": {"1": "Marriage", "2": "Career", "3": "Finances", "4": "Health", "5": "Children", "6": "Direction", "8": "Others", "7": "Spiritual Attack"},
+    "counsellor_number": "2349094540644",
+    "counselling_info": {
+        "Marriage": "verses: Ephesians 5:25-33, 1 Corinthians 13:4-7, Ecclesiastes 4:12\n\ncounselling: Build your marriage on love, respect, and mutual support. Communicate openly and seek God’s guidance to strengthen your bond. A cord of three strands—husband, wife, and God—is not easily broken.",
+        "Career": "verses: Colossians 3:23-24, Proverbs 16:3, Psalm 90:17\n\ncounselling: Work diligently as unto the Lord, trusting Him to guide your career path. Commit your plans to God, and He will establish your steps with purpose and success.",
+        "Finances": "verses: Philippians 4:19, Malachi 3:10, Deuteronomy 8:18\n\ncounselling: Trust God to provide for your financial needs. Practice wise stewardship, give generously, and seek His kingdom first, knowing He will supply all you need.",
+        "Health": "verses: Jeremiah 30:17, Psalm 30:2, 3 John 1:2\n\ncounselling: Seek God’s healing and strength for your body and mind. Rest in His care, follow wise medical advice, and trust Him to restore your health and vitality.",
+        "Children": "verses: Proverbs 22:6, Psalm 127:3-5, Isaiah 54:13\n\ncounselling: Raise your children with love and godly instruction. Trust God to protect and guide them, knowing they are a precious gift and heritage from Him.",
+        "Direction": "verses: Proverbs 3:5-6, Psalm 32:8, James 1:5\n\ncounselling: Seek God’s wisdom in every decision. Trust Him to guide your path, and He will direct you with clarity and purpose as you lean on His understanding.",
+        "Spiritual_Attack": "verses: Ephesians 6:12, Psalm 91:1-4, James 4:7\n\ncounselling: Stand firm in God’s strength against spiritual challenges. Put on His armor, resist the enemy with faith, and rest under His protective wings.",
+        "Others": "verses: Philippians 4:6-7, 1 Thessalonians 5:17, Matthew 7:7\n\ncounselling: Bring all your concerns to God in prayer. Trust His wisdom and timing, and He will grant you peace and answers as you seek Him earnestly."
+    }
+}

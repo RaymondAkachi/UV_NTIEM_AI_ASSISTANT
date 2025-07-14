@@ -13,3 +13,4 @@ class GraphState(TypedDict):
     user_request: str
     scheduler: List
     answered: bool
+    app_state: str

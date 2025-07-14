@@ -7,7 +7,7 @@ from langchain_core.output_parsers import StrOutputParser
 # from database import SessionLocal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.db_logic.database import engine
+from app.db_logic.database import engine, execute_with_retry
 from app.db_logic.models import User
 import dateparser
 from datetime import datetime, timedelta
@@ -330,6 +330,13 @@ Process the user's message according to these rules and provide only the JSON ou
             response = message_response.json()
             return response
 
+    async def get_user_id(self, session: AsyncSession, phone_number: str) -> int | None:
+        """Async function to retrieve User.id by phone_number."""
+        # result = await session.execute(select(User.id).where(User.phone_number == str(phone_number)))
+        result = await execute_with_retry(session.execute,
+                                          select(User.id).where(User.phone_number == str(phone_number)))
+        return result.scalar_one_or_none()
+
     async def book_appointment(self, name: str, phone_no: str) -> str | None:
         try:
             date_and_time = await self.validate_params()
@@ -345,7 +352,8 @@ Process the user's message according to these rules and provide only the JSON ou
                         user_message = f"Failed to book an appointment please use this format, '10th October 2024' for dates and '18:00' for time"
                         return user_message
 
-                    user_id = (await session.execute(select(User.id).where(User.phone_number == str(phone_no)))).scalar_one_or_none()
+                    user_id = await self.get_user_id(session, phone_no)
+
                     user_message = f"Appointment request sent, proposed time is {
                         formatted_date} at {formatted_time}. You will be notified when your appointment has been approved"
 
@@ -362,5 +370,5 @@ Process the user's message according to these rules and provide only the JSON ou
 
 if __name__ == "__main__":
     book_app = BookAppointment(
-        user_input="I want to book an appointment for 10th July 2025 at 18:00")
+        user_input="I want to book an appointment for 19th July 2025 at 18:00")
     print(asyncio.run(book_app.book_appointment("Akachi", "2349094540644")))

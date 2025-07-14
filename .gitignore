@@ -43,7 +43,7 @@ env/
 *.pyc
 voice_notes
 vector_cache/
-
+add_docs/
 *.venv
 # Any other local temporary or specific files
 # my_temp_file.txt

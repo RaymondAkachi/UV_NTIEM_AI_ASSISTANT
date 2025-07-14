@@ -2,7 +2,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import END, StateGraph, START
 from .p_and_c_embeddings import p_and_c_router, prayer_and_counselling
 # from .prayer_embeddings import PrayerRelation
-# from .counselling_embeddings import CounsellingRelation
+# from .counselling_embeddings import NewCounsellingRelation
 from typing import Dict
 # import asyncio
 
@@ -12,6 +12,8 @@ class GraphState(TypedDict):
     request: str
     response: str
     validators: Dict
+    app_state: str
+    phone_number: str
 
 
 # Nodes
@@ -20,15 +22,19 @@ async def prayer(state: GraphState):
     print('Routing to Prayer Node')
     validator = state['validators']['prayer_validator']
     request = state['request']
-    response = await validator.return_help(request)
-    return {'response': response, 'intent': 'prayer'}
+    app_state = state["app_state"]
+    phone_no = state["phone_number"]
+    print("About to enter prayer return_help function")
+    response, state = await validator.return_help(request, phone_no, app_state)
+    return {'response': response, 'intent': 'prayer', "app_state": state}
 
 
 async def counselling(state: GraphState):
     print("Routing to counselling node")
     validator = state['validators']['counselling_validator']
     request = state['request']
-    response = await validator.return_help(request)
+    phone_no = state['phone_number']
+    response = await validator.return_help(request, phone_no)
     return {'response': response, 'intent': "counselling"}
 
 
@@ -37,9 +43,11 @@ async def both_p_and_c(state: GraphState):
     request = state['request']
     validator = state['validators']['prayer_validator']
     counselling_validator = state['validators']['counselling_validator']
-    response = await prayer_and_counselling(
-        request, validator=validator, counselling_validator=counselling_validator)
-    return {'response': response}
+    phone_number = state["phone_number"]
+    state = state["app_state"]
+    response, state = await prayer_and_counselling(
+        request, validator=validator, counselling_validator=counselling_validator, phone_number=phone_number, state=state)
+    return {'response': response, "app_state": state}
 
 # Edges
 

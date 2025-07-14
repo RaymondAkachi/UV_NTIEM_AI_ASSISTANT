@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     S3_BUCKET_URL: str
     S3_BUCKET_ACCESS_KEY_ID: str
     S3_BUCKET_SECRET_ACCESS_KEY: str
+    S3_BUCKET_NAME: str
     S3_REGION_NAME: str
 
     TOGETHERAI_API_KEY: str
@@ -54,6 +55,12 @@ class Settings(BaseSettings):
 
     TAVILY_API_KEY: str
 
+    QSTASH_CURRENT_SIGNING_KEY: str
+    QSTASH_NEXT_SIGNING_KEY: str
+
+    QSTASH_TOKEN: str
+
 
 settings = Settings()
 print(settings.NON_ASYNC_DATABASE_URL)
+# print(settings.QSTASH_NEXT_SIGNING_KEY)

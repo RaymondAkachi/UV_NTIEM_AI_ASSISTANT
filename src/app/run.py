@@ -40,7 +40,7 @@ def main():
 
     # Run Uvicorn server with import string
     uvicorn.run(
-        "main:app",  # Import string for the FastAPI app
+        "app.main:app",  # Import string for the FastAPI app
         host=host,
         port=port,
         reload=reload,

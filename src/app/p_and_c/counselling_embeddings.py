@@ -1,10 +1,17 @@
 from qdrant_client import AsyncQdrantClient, models
 import logging
 from langchain_openai import OpenAIEmbeddings
+from langchain.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_core.output_parsers import StrOutputParser
+from .send_number import schedule_number_send
 from typing import Dict, List
 from dotenv import load_dotenv
 import asyncio
 from app.settings import settings
+import boto3
+import json
+from botocore.exceptions import ClientError
 
 
 # Load environment variables
@@ -31,73 +38,32 @@ class CounsellingRelation:
         self.embeddings_model = OpenAIEmbeddings(
             api_key=settings.OPENAI_API_KEY)
         self.allowed_topics: Dict[str, List[str]] = {
-            "Grief": ["death", "loss", "bereavement", "mourning", "sadness", "heartbroken", "grieving a loved one",
-                      "funeral", "grieving process", "passed away", "why did this happen", "searching for meaning",
-                      "feeling lost", "questioning God", "spiritual crisis", "grief counseling", "support group",
-                      "memorial", "coping with loss", "I can't stop crying", "I feel empty"],
-            "Relationships": ["marriage", "divorce", "separation", "conflict", "argument", "communication",
-                              "infidelity", "affair", "breakup", "dating", "family", "children", "spouse", "partner",
-                              "relationship issues", "loneliness", "intimacy", "trust", "forgiveness", "boundaries",
-                              "friendship issues", "coworker conflict", "social anxiety", "romantic relationship",
-                              "family dynamics", "parenting challenges", "faith-based counseling", "spiritual guidance",
-                              "I'm always fighting with my partner", "I feel disconnected"],
-            "Addiction": ["addiction", "substance abuse", "alcoholism", "drug abuse", "dependence", "recovery", "relapse",
-                          "withdrawal", "overdose", "gambling addiction", "compulsive behavior", "craving", "support group",
-                          "rehabilitation", "12-step program", "self-control", "internet addiction", "food addiction",
-                          "behavioral addiction", "seeking help", "treatment options", "I can't control myself",
-                          "I'm scared of what I'm doing"],
-            "Anxiety": ["anxiety", "worry", "fear", "nervousness", "panic", "overthinking", "restlessness", "dread",
-                        "anxious thoughts", "feeling anxious", "panic attacks", "social anxiety", "generalized anxiety",
-                        "I can’t relax", "I’m constantly worried", "fear of the future", "racing thoughts",
-                        "anxiety about work", "nervous breakdown"]
+            "Marriage": ["marriage", "spouse", "husband", "wife", "partner", "marital harmony", "love and unity",
+                         "marital issues", "communication in marriage", "intimacy", "trust in marriage", "infidelity",
+                         "reconciliation", "strengthening our bond", "family unity", "marriage restoration",
+                         "spousal support", "divorce prevention", "healthy relationship"],
+            "Career": ["job", "work", "employment", "career path", "professional growth", "job opportunity",
+                       "workplace success", "career advancement", "promotion", "job stability", "work challenges",
+                       "career guidance", "professional skills", "job satisfaction", "work-life balance", "new job",
+                       "career transition", "success at work"],
+            "Finances": ["financial breakthrough", "debt relief", "financial stability", "money problems", "provision",
+                         "poverty", "unemployment", "financial struggles", "prosperity", "economic hardship",
+                         "financial blessing", "budget management", "income increase", "financial security",
+                         "business success", "financial wisdom", "debt cancellation"],
+            "Health": ["healing", "illness", "sickness", "disease", "mental health", "physical health", "recovery",
+                       "medical condition", "surgery", "health challenge", "chronic illness", "pain relief",
+                       "emotional healing", "wellness", "strength and health", "medical treatment",
+                       "restoration of health", "healing miracle"],
+            "Children": ["children", "kids", "family", "parenting", "child's future", "protection for children",
+                         "children's health", "guidance for kids", "child's education", "children's safety",
+                         "raising children", "child behavior", "teen challenges", "blessing for children",
+                         "child's faith", "family harmony", "children's success"],
+            "Direction": ["guidance", "God's will", "direction in life", "clarity", "purpose", "decision making",
+                          "path forward", "divine guidance", "life choices", "wisdom", "spiritual direction",
+                          "finding purpose", "life path", "God's plan", "discernment", "clear path", "life decisions"],
+            "Spiritual_Attack": ["village people"]
         }
-        self.counselling_feedback = {
-            "Grief": {
-                "verses": ["Psalm 34:18", "Revelation 21:4", "Matthew 5:4"],
-                "steps": [
-                    "Allow yourself to grieve",
-                    "Join a support group",
-                    "Memorialize your loss"
-                ],
-                "counseling": "GriefShare: +2349094540644"
-            },
-            "Addiction": {
-                "verses": ["1 Corinthians 10:13", "Philippians 4:13", "Galatians 5:1"],
-                "steps": [
-                    "Contact Celebrate Recovery",
-                    "Remove triggers",
-                    "Daily accountability"
-                ],
-                "counseling": "SAMHSA: +2348032235209"
-            },
-            "Relationships": {
-                "verses": ["Colossians 3:13", "Ecclesiastes 4:9-12", "Proverbs 15:1"],
-                "steps": [
-                    "Practice active listening",
-                    "Set healthy boundaries",
-                    "Seek couples counseling"
-                ],
-                "counseling": "Christian Relationship Counselors Network: +2348033194594"
-            },
-            "Anxiety": {
-                "verses": ["Philippians 4:6-7", "1 Peter 5:7", "Matthew 6:34"],
-                "steps": [
-                    "Pray to God",
-                    "Read the word of God"
-                ],
-                "counseling": "Christian Anxiety Counselors Network: +2348033194594"
-            },
-            "Default": {
-                "verses": ["Colossians 3:13", "Ecclesiastes 4:9-12", "Proverbs 15:1"],
-                "steps": [
-                    "Practice self-reflection",
-                    "Seek spiritual guidance",
-                    "Seek professional counseling"
-                ],
-                "counseling": "Christian Counselors Network: +2349094540644"
-            }
-        }
-        self.similarity_threshold = 0.75
+        self.similarity_threshold = 0.76
         self.collection_name = "counselling_topics"
 
         self.QDRANT_URL = settings.QDRANT_URL
@@ -305,22 +271,45 @@ class CounsellingRelation:
         logger.info(f"Similarity explanation for '{query}': {scores}")
         return explanation
 
-    async def return_help(self, query: str) -> str:
+    async def return_help(self, query: str, user_number: str) -> str:
         """Return counseling feedback based on the most relevant topic asynchronously."""
         if not query.strip():
             logger.warning("Empty query provided")
             return "Please provide a valid query to receive counseling feedback."
+
         values = await self.explain_similarity(query)
         if values["max_category_score"] < self.similarity_threshold:
-            department = self.counselling_feedback["Default"]
+            prayer, number = await self._load_counselling_info("Others")
         else:
-            department = self.counselling_feedback[values['most_likely_category']]
-        response_string = f"""Hello, please read these Bible verses we believe will help with your situation: {', '.join(department['verses'])}.
-Please follow these steps: {', '.join(department['steps'])}.
-Please call this number; they will counsel you: {department['counseling']}.
-God bless you."""
-        # logger.info(f"Returning help for query '{query}': {response_string}")
-        return response_string
+            prayer, number = await self._load_counselling_info(values['most_likely_category'])
+        number = "Please reach out to our counsellor at: " + number
+        await schedule_number_send(user_number, number)
+        return prayer
+
+    async def _load_counselling_info(self, category) -> Dict:
+        """Load prayer feedback from S3."""
+        try:
+            s3_client = boto3.client(
+                's3',
+                aws_access_key_id=settings.S3_BUCKET_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.S3_BUCKET_SECRET_ACCESS_KEY
+            )
+            response = s3_client.get_object(
+                Bucket=settings.S3_BUCKET_NAME,
+                Key="prayer_feedback.json"
+            )
+            data = json.loads(response['Body'].read().decode('utf-8'))
+            counsellor_number = data.get('counsellor_number', '2349094540644')
+            counselling_info = data.get('counselling_info', {})
+            return counselling_info.get(category, {}), counsellor_number
+
+        except ClientError as e:
+            logger.error(f"Failed to load prayer feedback from S3: {str(e)}")
+            return "verses: Proverbs 22:6, Psalm 127:3, Deuteronomy 6:6-7\n\nPrayer: Father Lord, help me to pray to you in spirit and in truth, in Jesus' name, Amen.", "2349094540644"
+        except Exception as e:
+            logger.error(
+                f"Unexpected error loading prayer feedback from S3: {str(e)}")
+            return "verses: Proverbs 22:6, Psalm 127:3, Deuteronomy 6:6-7\n\nPrayer: Father Lord, help me to pray to you in spirit and in truth, in Jesus' name, Amen.", "2349094540644"
 
     async def add_topic_category(self, category: str, keywords: List[str]):
         """Add new topic category and keywords to Qdrant at runtime asynchronously."""
@@ -349,14 +338,72 @@ God bless you."""
             raise
 
 
-# if __name__ == "__main__":
-#     async def test_counselling_relation():
-#         try:
-#             x = CounsellingRelation()
-#             result = await x.return_help("He is sad he just lost his father")
-#             print(result)
+class NewCounsellingRelation:
+    def __init__(self):
+        # self.request = request
+        self.llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
+        self.prompt = PromptTemplate(
+            input_variables=["user_message"],
+            template="""
+Generate a Christian prayer and supporting Bible verses based on a user request: {user_message}. 
+The response should align strictly with traditional Christian beliefs and biblical truths. It should explicitly avoid supporting any modern practices or ideologies that contradict these teachings, such as LGBTQ+ lifestyles.
+""")
+        self.chain = self.prompt | self.llm | StrOutputParser()
 
-#         except Exception as e:
-#             print(f"An error occurred: {e}")
+    async def get_prayer(self, request):
+        result = await self.chain.ainvoke({'user_message': request})
+        additional_text = "Kindly meditate on these: while we provide you with a number to speak with our counsellor.\n\n"
+        result = additional_text + str(result)
 
-#     asyncio.run(test_counselling_relation())
+        return result
+
+    async def return_help(self, query, phone_number):
+        result = await self.get_prayer(query)
+        user_number = phone_number
+        counsellor_number = await self._get_counsellor_number()
+        text = f"Here is our counsellor's number: {counsellor_number}"
+        additional_data = {"priority": "high"}
+
+        success = await schedule_number_send(user_number, text, additional_data)
+        if not success:
+            print("Failed to schedule task.")
+
+        return result
+
+    async def _get_counsellor_number(self):
+        """Load prayer feedback from S3."""
+        try:
+            s3_client = boto3.client(
+                's3',
+                aws_access_key_id=settings.S3_BUCKET_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.S3_BUCKET_SECRET_ACCESS_KEY
+            )
+            response = s3_client.get_object(
+                Bucket=settings.S3_BUCKET_NAME,
+                Key="prayer_feedback.json"
+            )
+            data = json.loads(response['Body'].read().decode('utf-8'))
+            return data.get('counsellor_number', '')
+
+        except ClientError as e:
+            logger.error(f"Failed to counsellor number from S3: {str(e)}")
+            return "Something went wrong: Reach a counsellor here: 2349094540644"
+
+        except Exception as e:
+            logger.error(
+                f"Failed to counsellor number from S3: {str(e)}")
+            return "Something went wrong: Reach a counsellor here: 2349094540644"
+
+        # Add functionality functionality to send message after 2 number after 2 minutes
+
+
+if __name__ == "__main__":
+    async def test_counselling_relation():
+        try:
+            x = CounsellingRelation()
+            result = await x.return_help("I need counselling on my marriage", "2349094540644")
+            print(result)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+    asyncio.run(test_counselling_relation())

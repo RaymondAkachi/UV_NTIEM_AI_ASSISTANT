@@ -6,7 +6,7 @@ from uuid import uuid4
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
 import os
-from settings import settings
+from app.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 

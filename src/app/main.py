@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Depends, Request, Response
+from fastapi import FastAPI, Depends, Request, Response, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-# from database import AsyncSessionLocal
+from pydantic import BaseModel
 from sqlalchemy.future import select
-from main_graph import create_workflow_graph
+from .main_graph import create_workflow_graph
 from qdrant_client import AsyncQdrantClient
 # from app_reminder import setup_scheduler, schedule_appointment_reminder
 # from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -28,6 +28,8 @@ from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timedelta
 from .settings import settings
 import traceback
+from .p_and_c.send_number import verify_qstash_signature
+from .components import response_types
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,9 +46,8 @@ scheduler = None
 app = FastAPI()
 
 # Constants
-WHATSAPP_API_URL = settings.WHATSAPP_API_URL
-WHATSAPP_API_AUTHORIZATION = settings.WHATSAPP_API_AUTHORIZATION
 ASSEMBLYAI_API_KEY = settings.ASSEMBLYAI_API_KEY
+WHATSAPP_API_AUTHORIZATION = settings.WHATSAPP_API_AUTHORIZATION
 
 
 async def get_async_db():
@@ -163,13 +164,13 @@ async def health_check():
 async def whatsapp_handler(request: Request, validators: dict = Depends(get_validators)) -> Response:
     """Handles incoming messages and status updates from the WhatsApp Cloud API."""
 
-    if request.method == "GET":
-        params = request.query_params
-        # if params.get("hub.verify_token") == os.getenv("WHATSAPP_VERIFY_TOKEN"):
-        if params.get("hub.verify_token") == "12345":
-            return Response(content=params.get("hub.challenge"), status_code=200)
-        logger.warning("Verification Token Mismatch")
-        return Response(content="Verification token mismatch", status_code=403)
+    # if request.method == "GET":
+    #     params = request.query_params
+    #     # if params.get("hub.verify_token") == os.getenv("WHATSAPP_VERIFY_TOKEN"):
+    #     if params.get("hub.verify_token") == "12345":
+    #         return Response(content=params.get("hub.challenge"), status_code=200)
+    #     logger.warning("Verification Token Mismatch")
+    #     return Response(content="Verification token mismatch", status_code=403)
 
     try:
         data = await request.json()
@@ -182,7 +183,7 @@ async def whatsapp_handler(request: Request, validators: dict = Depends(get_vali
             from_number = message["from"]
             name = change_value["contacts"][0]["profile"]["name"]
             from_voice_note = False
-            await message_recieved(from_number)
+            # await response_types.message_recieved(from_number)
 
             # Get user message and handle different message types
             content = ""
@@ -218,7 +219,8 @@ async def whatsapp_handler(request: Request, validators: dict = Depends(get_vali
             output_format = results['output_format']
             response = results['response']
             user_request = results['user_request']
-            success = await process_message_response(from_number, response, from_voice_note, output_format, user_request)
+            app_state = results['app_state']
+            success = await process_message_response(from_number, response, from_voice_note, output_format, user_request, app_state)
 
             if not success:
                 return Response(content="Failed to send message", status_code=500)
@@ -233,14 +235,14 @@ async def whatsapp_handler(request: Request, validators: dict = Depends(get_vali
         return Response(content="This went wrong {e}", status_code=500)
 
 
-async def process_message_response(number, response, voice_note, ouput_format, user_input):
+async def process_message_response(number, response, voice_note, ouput_format, user_input, state):
     if ouput_format == 'text':
         if voice_note:
             url = VoiceCreation(response).text_to_speech()
-            api_response = await audio_response(number, url)
+            api_response = await response_types.audio_response(number, url)
         else:
-            api_response = await text_response(number, response)
-        await update_chat_history(number, user_message=user_input, bot_response=response)
+            api_response = await response_types.text_response(number, response)
+        await update_chat_history(number, user_message=user_input, bot_response=response, state=state)
         return api_response
 
     if ouput_format == 'video':
@@ -252,14 +254,14 @@ async def process_message_response(number, response, voice_note, ouput_format, u
             else:
                 link = result['s3VideoLink']
                 text = f"We found this result based on the date you provided, watch the rest of the sermon here: {result['socialVideoLink']}\n"
-            response = await video_response(number, link, text)
+            response = await response_types.video_response(number, link, text)
             collective_result += text
-        await update_chat_history(number, user_message=user_input, bot_response=collective_result)
+        await update_chat_history(number, user_message=user_input, bot_response=collective_result, state=state)
         return response
 
     if ouput_format == 'image':
-        response = await image_response(number, image_url=response)
-        await update_chat_history(number, user_message=user_input, bot_response=f"Here is the link to the image we just created fpr you based on your query: {response}")
+        response = await response_types.image_response(number, image_url=response)
+        await update_chat_history(number, user_message=user_input, bot_response=f"Here is the link to the image we just created fpr you based on your query: {response}", state=state)
         return response
 
 
@@ -331,146 +333,37 @@ async def process_audio_message(message: Dict) -> str:
         await asyncio.sleep(3)  # Wait a few seconds before polling again
 
 
-async def text_response(number, text):
-    url = WHATSAPP_API_URL
-    headers = {
-        "Authorization": WHATSAPP_API_AUTHORIZATION,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": str(number),
-        "type": "text",
-        "text": {"body": str(text)}
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url=url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error: {e.response.status_code} - {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"Error sending message: {str(e)}")
-            raise
+class TaskPayload(BaseModel):
+    user_number: str
+    text: str
+    task_id: str
 
 
-async def audio_response(number, audio_url):
-    api_url = WHATSAPP_API_URL
-    headers = {
-        "Authorization": WHATSAPP_API_AUTHORIZATION,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": str(number),
-        "type": "audio",
-        "audio": {
-            "link": str(audio_url)
-        }
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url=api_url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error: {e.response.status_code} - {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"Error sending audio: {str(e)}")
-            raise
+@app.post("/send-number")
+async def handle_task(request: Request):
+    """
+    Handle scheduled task from QStash for prayer requests.
+    """
+    # Verify QStash signature
+    body = await request.body()
+    signature = request.headers.get("Upstash-Signature")
+    if not signature:
+        logger.error("Missing Upstash-Signature header")
+        raise HTTPException(status_code=401, detail="Missing signature")
+    if not verify_qstash_signature(body, signature):
+        logger.error("Invalid QStash signature")
+        raise HTTPException(status_code=401, detail="Invalid signature")
 
+    try:
+        # Parse payload
+        payload = TaskPayload(**await request.json())
+        user_number = payload.user_number
+        text = payload.text
+        logger.info(
+            f"Received task: {payload.task_id}, User: {user_number}, Text: {text}")
 
-async def video_response(number, video_url, caption):
-    api_url = WHATSAPP_API_URL
-    headers = {
-        "Authorization": WHATSAPP_API_AUTHORIZATION,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": str(number),
-        "type": "video",
-        "video": {
-            "link": str(video_url),
-            "caption": str(caption)
-        }
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url=api_url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error: {e.response.status_code} - {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"Error sending video: {str(e)}")
-            raise
-
-
-async def image_response(number, image_url):
-    caption = "Here is your image"
-    api_url = WHATSAPP_API_URL
-    headers = {
-        "Authorization": WHATSAPP_API_AUTHORIZATION,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": str(number),
-        "type": "image",
-        "image": {
-            "link": str(image_url)
-        }
-    }
-    if caption:
-        payload["image"]["caption"] = str(caption)
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url=api_url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error: {e.response.status_code} - {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"Error sending image: {str(e)}")
-            raise
-
-
-async def message_recieved(number):
-    url = WHATSAPP_API_URL
-    headers = {
-        "Authorization": WHATSAPP_API_AUTHORIZATION,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": str(number),
-        "type": "text",
-        "text": {"body": "Hello we have recieved your message, please wait while we process it!"}
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url=url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error: {e.response.status_code} - {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"Error sending message: {str(e)}")
-            raise
+        await response_types.text_response(user_number, text)
+    except Exception as e:
+        logger.error(f"Error processing task {payload.task_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error processing task: {str(e)}")

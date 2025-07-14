@@ -8,7 +8,7 @@ from typing import Literal
 load_dotenv()
 
 
-async def prayer_and_counselling(request: str, validator, counselling_validator) -> str:
+async def prayer_and_counselling(request: str, validator, counselling_validator, phone_number, state) -> str:
     """
     Create a chain that splits a user's request into separate questions for prayer and/or counselling.
 
@@ -71,17 +71,18 @@ Now, split the following request:
             filtered_words = [
                 word for word in words if "pray" not in word.lower()]
             filtered_string = " ".join(filtered_words)
-            total_response = total_response + \
-                await validator.return_help(filtered_string) + "\n\n"
+            response, state = await validator.return_help(filtered_string, phone_number, state) + "\n\n"
+            total_response = total_response + response
+
         else:
             words = question.split()
             filtered_words = [
                 word for word in words if "counsel" not in word.lower()]
             filtered_string = " ".join(filtered_words)
             total_response = total_response + \
-                await counselling_validator.return_help(filtered_string) + "\n\n"
+                await counselling_validator.return_help(filtered_string, phone_number) + "\n\n"
 
-    return total_response
+    return total_response, state
 
 
 def p_and_c_router():

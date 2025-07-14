@@ -1,8 +1,6 @@
-from typing import List
+from typing import List, Any, Callable, Dict, Tuple
 from rapidfuzz import fuzz, process
-# from dotenv import load_dotenv
 from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI  # Replace with your preferred LLM
@@ -11,80 +9,250 @@ from pymongo.server_api import ServerApi
 from app.db_logic.models import User
 from app.db_logic.database import engine
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, UTC
-# import asyncio  # For testing purposes
+from datetime import datetime, UTC, timedelta
+from zoneinfo import ZoneInfo
+import asyncio  # For testing purposes
 from sqlalchemy import select
 from json import loads
-from datetime import datetime, timedelta
-from settings import settings
+from app.settings import settings
+from dotenv import load_dotenv
+import logging
+from app.p_and_c.send_number import schedule_number_send
+from pymongo.errors import (
+    ConnectionFailure,
+    NetworkTimeout,
+    OperationFailure,
+    ServerSelectionTimeoutError
+)
+import boto3
+import json
+from botocore.exceptions import ClientError
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_log, after_log
 from dotenv import load_dotenv
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+# Logging setup
+RETRIABLE_MONGO_EXCEPTIONS = (
+    ConnectionFailure,
+    NetworkTimeout,
+    OperationFailure,
+    ServerSelectionTimeoutError
+)
+
+# MongoDB connection setup
 load_dotenv()
 
-####### GET QUESTION HISTORY #######
-# MongoDB connection setup
 MONGODBATLAS_URL = settings.MONGODBATLAS_URI
 client = AsyncIOMotorClient(MONGODBATLAS_URL, server_api=ServerApi(
     version='1', strict=True, deprecation_errors=True))
-
-# Select database and collection
 db = client['chat_app']
 chat_history = db['chat_history']
 
+# Retry decorator for async MongoDB operations
 
-async def update_chat_history(user_id, user_message, bot_response):
-    """
-    Update user's chat history, keeping only the last 20 messages.
-    Uses $slice to automatically remove oldest messages as needed.
 
-    :param user_id: Unique identifier for the user
-    :param user_message: The user's message content
-    :param bot_response: The bot's response content
-    """
-    # New messages to add
-    user_msg = {
-        "sender": user_id,
-        "content": user_message,
-        "timestamp": datetime.now(UTC)
-    }
-    bot_msg = {
-        "sender": "bot",
-        "content": bot_response,
-        "timestamp": datetime.now(UTC)
-    }
+@retry(
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    stop=stop_after_attempt(5),
+    retry=retry_if_exception_type(RETRIABLE_MONGO_EXCEPTIONS),
+    before_sleep=before_log(logger, logging.INFO),
+    after=after_log(logger, logging.WARNING),
+    reraise=True
+)
+async def execute_mongo(async_func: Callable[..., Any], *args, **kwargs) -> Any:
+    """Execute an async MongoDB operation with retry logic."""
+    if not asyncio.iscoroutinefunction(async_func):
+        raise ValueError(
+            f"Function {async_func.__name__} must be an async function")
+    return await async_func(*args, **kwargs)
 
-    # Append new messages and cap at 2 using $slice
-    result = await chat_history.update_one(
+
+async def update_chat_collection(collection, user_id: str, user_msg: dict, bot_msg: dict, state: str):
+    """Async function to perform the update_one operation with state."""
+    return await collection.update_one(
         {"_id": user_id},
         {
             "$push": {
                 "messages": {
-                    "$each": [user_msg, bot_msg],  # Add both messages
-                    "$slice": -2                # Keep only the last 2 messages
+                    "$each": [user_msg, bot_msg],
+                    "$slice": -2
                 }
+            },
+            "$set": {
+                "state": state
             }
         },
         upsert=True
     )
 
-    # Estimate new count (for logging purposes)
-    user_doc = await chat_history.find_one({"_id": user_id})
-    # new_count = len(user_doc["messages"]
-    #                 ) if user_doc and "messages" in user_doc else 0
-    print(f"Chat history updated for {user_id}")
 
-
-async def get_chat_history(user_id):
+async def update_chat_history(user_id: str, user_message: str, bot_response: str, state: str = "normal"):
     """
-    Retrieve the chat history for a given user.
+    Update user's chat history and conversation state, keeping only the last 2 messages.
 
-    :param user_id: Unique identifier for the user
-    :return: List of messages or an empty list if user not found or no messages exist
+    Args:
+        user_id (str): Unique identifier for the user.
+        user_message (str): The user's message content.
+        bot_response (str): The bot's response content.
+        state (str): The conversation state (e.g., 'normal', 'waiting_for_prayer_topic').
+
+    Returns:
+        bool: True if update is successful, False otherwise.
     """
-    user_doc = await chat_history.find_one({"_id": user_id})
-    if user_doc and "messages" in user_doc:
-        return user_doc["messages"]
-    return []
+    user_msg = {
+        "sender": user_id,
+        "content": user_message,
+        "timestamp": datetime.now(ZoneInfo("Africa/Lagos"))
+    }
+    bot_msg = {
+        "sender": "bot",
+        "content": bot_response,
+        "timestamp": datetime.now(ZoneInfo("Africa/Lagos"))
+    }
+
+    try:
+        result = await execute_mongo(
+            update_chat_collection,
+            collection=chat_history,
+            user_id=user_id,
+            user_msg=user_msg,
+            bot_msg=bot_msg,
+            state=state
+        )
+        user_doc = await chat_history.find_one({"_id": user_id})
+        new_count = len(user_doc["messages"]
+                        ) if user_doc and "messages" in user_doc else 0
+        logger.info(
+            f"Chat history updated for {user_id}. Message count: {new_count}, State: {state}")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating chat history for {user_id}: {e}")
+        return False
+
+
+async def find_chat_history(collection, user_id: str) -> dict:
+    """Async function to perform the find_one operation."""
+    return await collection.find_one({"_id": user_id})
+
+
+async def get_chat_history(user_id: str) -> Tuple[List[dict], str]:
+    """
+    Retrieve the chat history and conversation state for a given user.
+
+    Args:
+        user_id (str): Unique identifier for the user.
+
+    Returns:
+        Tuple[List[dict], str]: List of messages and the current conversation state.
+    """
+    try:
+        user_doc = await execute_mongo(
+            find_chat_history,
+            collection=chat_history,
+            user_id=user_id
+        )
+        if user_doc and "messages" in user_doc:
+            state = user_doc.get("state", "normal")
+            logger.info(
+                f"Retrieved chat history for {user_id}. Message count: {len(user_doc['messages'])}, State: {state}")
+            return user_doc["messages"], state
+        logger.info(
+            f"No chat history found for {user_id}, returning default state 'normal'")
+        return [], "normal"
+    except Exception as e:
+        logger.error(f"Error retrieving chat history for {user_id}: {e}")
+        return [], "normal"
+
+
+async def get_prayer_obj(user_input: str):
+    prayer_prompt = ("""You are an AI assistant tasked with determining the user's intent based on their input regarding prayer requests. The church offers the following prayer options:
+1. Marriage  
+2. Career  
+3. Finances  
+4. Health  
+5. Children  
+6. Direction  
+7. Spiritual Attack  
+8. Others
+
+The user has been prompted with:'Please select out of these options what exactly you would like prayer for.\n\n1. Marriage\n2. Career\n3. Finances\n4. Health\n5. Children\n6. Direction\n7. Spiritual Attack\n8. Others'  
+Based on the user's response, identify which options they are selecting. The user might input numbers (e.g., "1", "3"), category names (e.g., "Marriage", "Health"), or a combination (e.g., "1. Marriage", "Career and 3"). Your task is to extract the selected options and return their corresponding numbers in the order they appear in the input. If the input does not indicate a selection from these options or seems unrelated, return null.
+Instructions
+
+Case-Insensitive Matching: Convert the input to lowercase.  
+Number Detection: Use regex (e.g., r'\b[1-8]\b') to find standalone numbers 1–8, recording their positions and values.  
+Category Detection: Search for exact category names (e.g., r'\bmarriage\b', r'\bspiritual attack\b') in the input, recording their positions and corresponding numbers.  
+Order Preservation: Sort matches by their positions in the input.  
+Unique Selections: Collect category numbers in the order they first appear, avoiding duplicates (e.g., "Marriage and Marriage" returns [1], not [1,1]).  
+Output: If selections are found, return a list of numbers; otherwise, return null.
+
+Response Format
+Always return a JSON object with the key "selected_options" containing the list of numbers or null.  
+
+Example: {{"selected_options": [1, 3]}}  
+Example: {{"selected_options": null}}
+
+Examples
+
+Input: "Marriage" → {{"selected_options": [1]}}
+Input: "1. Marriage" → {{"selected_options": [1]}}  
+Input: "3 and 1" → {{"selected_options": [3, 1]}}  
+Input: "Career and Health" → {{"selected_options": [2, 4]}}  
+Input: "Hello world" → {{"selected_options": null}}
+""")
+
+    # Create the PromptTemplate
+    prayer_q_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", prayer_prompt),
+            ("human", "{input}"),
+        ]
+    )
+
+    llm = ChatOpenAI(model="gpt-4.1-mini")
+    chain = prayer_q_prompt | llm | StrOutputParser()
+
+    result = await chain.ainvoke({'input': str(user_input)})
+    result = json.loads(result)
+    return_list = []
+
+    prayer_list = await get_json_object('prayer_list')
+    prayer_info = await get_json_object('prayer_info')
+    if not result['selected_options']:
+        return None
+
+    for i in result['selected_options']:
+        category = prayer_list[str(i)]
+        return_list.append(prayer_info[category])
+
+    return return_list
+
+
+async def get_json_object(key):
+    try:
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.S3_BUCKET_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.S3_BUCKET_SECRET_ACCESS_KEY
+        )
+        response = s3_client.get_object(
+            Bucket=settings.S3_BUCKET_NAME,
+            Key="prayer_feedback.json"
+        )
+        data = json.loads(response['Body'].read().decode('utf-8'))
+        return data.get(key, {})
+
+    except ClientError as e:
+        logger.error(
+            "Something went wroong when trying to retrieve data from prayer_feedback.json in ntiembotbucket")
+        return {}
+    except Exception as e:
+        logger.error(
+            "Something went wroong when trying to retrieve data from prayer_feedback.json in ntiembotbucket")
+        return {}
 
 
 contextualize_q_system_prompt = (
@@ -270,7 +438,7 @@ def replace_relative_dates(query: str, target_words: List[str] = None, threshold
     return " ".join(result)
 
 
-async def rewriters_func(chat_history: list, user_question_1: str):
+async def rewriters_func(chat_history: list, user_question_1: str, state: str):
     history = []
     user_question = replace_relative_dates(user_question_1)
     if chat_history:
@@ -287,6 +455,7 @@ async def rewriters_func(chat_history: list, user_question_1: str):
         response = await query_rewriter_chain.ainvoke(
             {'user_question': user_question})
         results['Response'] = response
+    results['state'] = state
     return results
 
 
@@ -309,17 +478,47 @@ async def add_user_to_db(user_name, phone_number):
 
 
 async def query_rewrite(user_question, user_name, user_phone_number):
-    chat_history = await get_chat_history(user_phone_number)
+    chat_history, state = await get_chat_history(user_phone_number)
+    if state != "normal":
+        total_res = ''
+        prayer_objects = await get_prayer_obj(user_question)
+        if not prayer_objects:
+            if chat_history == []:
+                await add_user_to_db(user_name, user_phone_number)
+                result = await rewriters_func(chat_history, user_question, state)
+            else:
+                result = await rewriters_func(chat_history, user_question, state)
+            result['state'] = 'normal'
+            return result
+        else:
+            for i in prayer_objects:
+                total_res += total_res + f"{i['prayer']}\n\n"
+                await schedule_number_send(user_phone_number, i['contact'])
+
+            return {'answerable': True, "Response": total_res, "state": "normal"}
+
     if chat_history == []:
         await add_user_to_db(user_name, user_phone_number)
-        result = await rewriters_func(chat_history, user_question)
+        result = await rewriters_func(chat_history, user_question, state)
     else:
-        result = await rewriters_func(chat_history, user_question)
+        result = await rewriters_func(chat_history, user_question, state)
+    result['state'] = 'normal'
     return result
 
 
 # if __name__ == "__main__":
-#     async def update_test():
-#         res_1 = await query_rewrite('What is happening today?', "Akachi", "2349094540644")
-#         print(res_1)
-#     asyncio.run(update_test())
+    # x = asyncio.run(update_chat_history("2349094540644", "Hello I need prayer",
+    #                 "Please what exactly do you need prayer for?", "prayer"))
+
+    # async def update_chat_history(user_id: str, user_message: str, bot_response: str, state: str = "normal"):
+    # async def test():
+    #     history = ['User: I want prayer',
+    #                "Bot: Please select out of these options what exactly you would like prayer for.\n\n\n1. Marriage\n\n2. Health\n\n3. Children\n\n4. Direction\n\n5. Others"]
+    #     result = await chain.ainvoke({'chat_history': history, "input": "User: Health"})
+    #     print(result)
+    # asyncio.run(test())
+if __name__ == "__main__":
+    async def update_test():
+        res_1 = await query_rewrite('Who is Apostle Uche Raymond', "Akachi", "2349094540644")
+        print(res_1)
+    asyncio.run(update_test())

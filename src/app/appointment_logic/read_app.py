@@ -5,14 +5,15 @@ from langchain_core.runnables import RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 import calendar
 from sqlalchemy.ext.asyncio import AsyncSession
-# from database import engine  # Used for in script testing
+from app.db_logic.database import engine  # Used for in script testing
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import regex as re
 from app.db_logic.models import Appointment, AdminUser
 from sqlalchemy import select, distinct
-# import asyncio  # Used for in-script testing
-# import time  # Used for in-script testing
+from app.db_logic.database import execute_with_retry
+import asyncio  # Used for in-script testing
+import time  # Used for in-script testing
 import logging
 from dotenv import load_dotenv
 
@@ -206,8 +207,8 @@ Output only the JSON array.
 
     async def get_appointments_by_criteria(self, number):
         """Main function to get appointments matching date criteria"""
-        # if await self.is_admin(number):
-        if number in ReadAppointments.allowed_numbers:
+        if await execute_with_retry(self.is_admin, number):
+            # if number in ReadAppointments.allowed_numbers:
             results = await self.validate()
             if results:
                 response = ''
@@ -216,7 +217,8 @@ Output only the JSON array.
                     try:
                         try:
                             criteria = criteria.lower()
-                            matching_dates = await self.filter_dates_by_criteria(criteria)
+                            # matching_dates = await self.filter_dates_by_criteria(criteria)
+                            matching_dates = await execute_with_retry(self.filter_dates_by_criteria, criteria)
 
                             if not matching_dates:
                                 # No dates matched
@@ -234,11 +236,12 @@ Output only the JSON array.
                             Appointment.appointment_date.in_(matching_dates)
                         )
 
-                        result = await self.session.execute(
-                            stmt)
+                        # result = await self.session.execute(
+                        #     stmt)
+                        result = await execute_with_retry(self.session.execute, stmt)
                         result = result.all()  # Returns list of tuples
                         if not result:
-                            return f"No appointments found, please us this formats:'12th May 2025'\n or tomorrow, this week, next week, tomorrow, next week, next two weeks, this month, next month"
+                            return f"No appointments found, to be sure use a date in this format:'12th May 2025'\n or tomorrow, this week, next week, tomorrow, next week, next two weeks, this month, next month.\n If no appointments are stil found you have no appointments for that time period."
                         response_string += f"---{criteria.upper()}---\n"
                         for user_name, phone, time, date, id in result:
                             response_string += f"appointment scheduled with {
@@ -255,15 +258,15 @@ Output only the JSON array.
             return "You are not allowed to carry out this action"
 
 
-# if __name__ == "__main__":
-#     async def main():
-#         a = time.time()
-#         async with AsyncSession(engine) as session:
-#             read_app = ReadAppointments(
-#                 "Show me my appointments for this week", session)
-#             result = await read_app.get_appointments_by_criteria('2349094540644')
-#             print(result)
-#         b = time.time()
-#         print(b-a)
+if __name__ == "__main__":
+    async def main():
+        a = time.time()
+        async with AsyncSession(engine) as session:
+            read_app = ReadAppointments(
+                "Show me my appointments for this week", session)
+            result = await read_app.get_appointments_by_criteria('2349094540644')
+            print(result)
+        b = time.time()
+        print(b-a)
 
-#     asyncio.run(main())
+    asyncio.run(main())

@@ -2,7 +2,7 @@
 
 import json
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db_logic.database import engine
+from app.db_logic.database import engine, execute_with_retry
 from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableLambda
@@ -230,7 +230,8 @@ Process the user's message according to these rules and provide only the JSON ou
         return result.scalar_one_or_none()
 
     async def approve_appointment(self, number: str) -> str:
-        if await self.is_admin(number):
+        if await execute_with_retry(self.is_admin, number):
+            # if await self.is_admin(number):
             parameters = await self.validate_params()
             if parameters:
                 try:
@@ -250,20 +251,32 @@ Process the user's message according to these rules and provide only the JSON ou
 
                 try:
                     user_id = int(user_id)
-                    number = await self.get_number(user_id)
-                    user_name = await self.get_user_name(user_id)
-                    appointment = await self.add_appt_to_db({
-                        "user_id": user_id,
-                        "user_name": user_name,
-                        "phone_number": number,
-                        "appointment_date": str(date_str),
-                        "appointment_time": str(time_str),
-                        "is_confirmed": True})
+                    number = await execute_with_retry(self.get_number, user_id)
+                    # number = await self.get_number(user_id)
+                    # user_name = await self.get_user_name(user_id)
+                    user_name = await execute_with_retry(self.get_user_name, user_id)
+                    appointment = await execute_with_retry(self.add_appt_to_db,
+                                                           {
+                                                               "user_id": user_id,
+                                                               "user_name": user_name,
+                                                               "phone_number": number,
+                                                               "appointment_date": str(date_str),
+                                                               "appointment_time": str(time_str),
+                                                               "is_confirmed": True}
+                                                           )
+                    # appointment = await self.add_appt_to_db({
+                    #     "user_id": user_id,
+                    #     "user_name": user_name,
+                    #     "phone_number": number,
+                    #     "appointment_date": str(date_str),
+                    #     "appointment_time": str(time_str),
+                    #     "is_confirmed": True})
                     if not number:
                         logger.info("Invalid user_id entered by Admin")
                         return "user_id provided is not valid, please enter a valid user_id"
 
-                    await schedule_appointment_reminder(appointment, scheduler=self.scheduler)
+                    # await schedule_appointment_reminder(appointment, scheduler=self.scheduler)
+                    await execute_with_retry(schedule_appointment_reminder, scheduler=self.scheduler)
                 except Exception as e:
                     logger.error(
                         "Appointment acceptance failed: Failed to communicate with database")

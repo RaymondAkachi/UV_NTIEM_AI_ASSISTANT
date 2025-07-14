@@ -5,20 +5,21 @@ from langchain_core.runnables import RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select
-# from database import engine  # Used for in script testing
-from app.db_logic.models import Appointment
+from app.db_logic.database import engine  # Used for in script testing
+from app.db_logic.models import Appointment, AdminUser
+from app.db_logic.database import execute_with_retry
 from ast import literal_eval
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-# import asyncio # Used for in script testing
+import asyncio  # Used for in script testing
 import httpx
 import logging
-# from app_reminder import setup_scheduler  # Used for in-script testing
+from .app_reminder import setup_scheduler  # Used for in-script testing
 from typing import Dict, List, Any
 from app.settings import settings
 from dotenv import load_dotenv
 
-load_dotenv('.env')
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -148,9 +149,13 @@ Output only the JSON array.
         except (ValueError, TypeError):
             return []
 
+    async def is_admin(self, number):
+        result = await self.session.execute(select(AdminUser.phone_number).where(AdminUser.phone_number == number))
+        return result.scalar_one_or_none()
+
     async def delete_appointments(self, number: str) -> str:
         """Main function to delete appointments by ID."""
-        if number not in DeleteAppointments.allowed_numbers:
+        if not await execute_with_retry(self.is_admin, number):
             return "You are not allowed to carry out this action"
 
         appointment_ids = await self.validate()
@@ -161,7 +166,7 @@ Output only the JSON array.
             # Check if appointments exist and retrieve name and phone number
             stmt = select(Appointment.id, Appointment.user_name, Appointment.phone_number,
                           Appointment.appointment_date, Appointment.appointment_time).where(Appointment.id.in_(appointment_ids))
-            result = await self.session.execute(stmt)
+            result = await execute_with_retry(self.session.execute, stmt)
             # List of tuples (id, user_name, phone_number)
             existing_appointments = result.all()
 
@@ -174,7 +179,8 @@ Output only the JSON array.
                 # Delete the specific appointment
                 delete_stmt = delete(Appointment).where(
                     Appointment.id == appt_id)
-                await self.session.execute(delete_stmt)
+                # await self.session.execute(delete_stmt)
+                await execute_with_retry(self.session.execute, delete_stmt)
                 # Call user-defined function
 
                 hour, minute = literal_eval(time)
@@ -245,14 +251,14 @@ async def get_all_scheduler_jobs(scheduler: AsyncIOScheduler) -> List[Dict[str, 
 #     asyncio.run(see_jobs())
 
 
-# if __name__ == "__main__":
-#     async def del_app_test():
-#         scheduler = setup_scheduler()
-#         scheduler.start()
-#         async with AsyncSession(engine) as session:
-#             delete_appointment = DeleteAppointments(
-#                 "delete this appointment of id 60", session, scheduler)
-#             res = await delete_appointment.delete_appointments('2349094540644')
-#             print(res)
-#         scheduler.shutdown()
-#     asyncio.run(del_app_test())
+if __name__ == "__main__":
+    async def del_app_test():
+        scheduler = setup_scheduler()
+        scheduler.start()
+        async with AsyncSession(engine) as session:
+            delete_appointment = DeleteAppointments(
+                "delete this appointment of id 1060", session, scheduler)
+            res = await delete_appointment.delete_appointments('2349094540644')
+            print(res)
+        scheduler.shutdown()
+    asyncio.run(del_app_test())

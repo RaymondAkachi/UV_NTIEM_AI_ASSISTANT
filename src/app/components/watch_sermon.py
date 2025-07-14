@@ -12,6 +12,7 @@ import asyncio  # For testing purposes
 import time  # For in-script testing
 from dotenv import load_dotenv
 import os
+from app.settings import settings
 
 load_dotenv()
 print(os.environ.get("OPENAI_API_KEY"))
@@ -33,7 +34,7 @@ def find_video_links(search_terms: dict,  csv_key='videos.csv'):
         aws_secret_access_key=S3_SECRET_ACCESS_KEY,
         region_name=S3_BUCKET_REGION)
 
-    bucket_name = 'ntiembotbucket'
+    bucket_name = settings.S3_BUCKET_NAME  # e.g., 'ntiembotbucket'
     try:
         # Get CSV file from S3
         csv_obj = s3.get_object(Bucket=bucket_name, Key=csv_key)

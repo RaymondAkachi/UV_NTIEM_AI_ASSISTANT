@@ -20,10 +20,11 @@ async def query_rewriter_node(state: GraphState):
     response = await query_rewrite(user_request, user_name, user_phone_number)
     is_answerable = response['answerable']
     request_or_answer = response['Response']
+    app_state = response['state']
     if is_answerable:
-        return {'response': request_or_answer, "output_format": "text", "answered": is_answerable}
+        return {'response': request_or_answer, "output_format": "text", "answered": is_answerable, "app_state": app_state}
     else:
-        return {'user_request': request_or_answer, "output_format": "text", "answered": is_answerable}
+        return {'user_request': request_or_answer, "output_format": "text", "answered": is_answerable, "app_state": app_state}
 
 
 async def rag_node(state: GraphState):
@@ -43,14 +44,18 @@ async def p_and_c_node(state: GraphState):
     user_request = state['user_request']
     validator = state['p_and_c_validators']['validator']
     counselling_validator = state['p_and_c_validators']['counselling_validator']
+    app_state = state["app_state"]
+    phone_number = state['user_phone_number']
     if isinstance(user_request, list):
         user_request = str(user_request).strip('[').strip(']')
     print("ROUTUNG TO PRAYER AND COUNSELIING")
     answer = await help_workflow.ainvoke(
         {"request": user_request, 'validators': {
-            'prayer_validator': validator, "counselling_validator": counselling_validator}})
+            'prayer_validator': validator, "counselling_validator": counselling_validator},
+         "app_state": app_state, "phone_number": phone_number})
     result = answer['response']
-    return {'response': result, 'output_format': "text"}
+    app_state = answer['app_state']
+    return {'response': result, 'output_format': "text", "app_state": app_state}
 
 
 async def image_creation_node(state: GraphState):

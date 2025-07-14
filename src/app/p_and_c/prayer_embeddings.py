@@ -3,8 +3,14 @@ import logging
 from langchain_openai import OpenAIEmbeddings
 from typing import Dict, List
 import asyncio
+import boto3
+import json
+from typing import Optional
+from botocore.exceptions import ClientError
 from app.settings import settings
+from .send_number import schedule_number_send
 from dotenv import load_dotenv
+import regex as re
 
 load_dotenv()
 
@@ -12,77 +18,52 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+CORE_PRAYER_KEYWORDS = {"prayer", "pray", "praying", "prayers"}
+
+# Regex pattern for prayer-related terms (case-insensitive)
+PRAYER_PATTERN = re.compile(
+    r'\b(pray(?:er|ing|s)?|intercede|supplicat(?:e|ion)|plead)\b', re.IGNORECASE)
+
 
 class PrayerRelation:
     """Validates prayer-related queries and provides feedback using Qdrant for async similarity search."""
 
     def __init__(self):
         """Initialize the validator with Qdrant and OpenAI embeddings."""
-        # Validate environment variables
-        # if not os.getenv("OPENAI_API_KEY"):
-        #     logger.error("OPENAI_API_KEY environment variable is not set")
-        #     raise ValueError("OPENAI_API_KEY is required")
-        # if not os.getenv("QDRANT_URL") or not os.getenv("QDRANT_API_KEY"):
-        #     logger.error(
-        #         "QDRANT_URL and QDRANT_API_KEY environment variables are required")
-        #     raise ValueError("QDRANT_URL and QDRANT_API_KEY are required")
-
         self.embeddings_model = OpenAIEmbeddings(
             api_key=settings.OPENAI_API_KEY)
         self.allowed_topics: Dict[str, List[str]] = {
-            "Marriage": ["marriage", "spouse", "partner", "husband", "wife", "marital relationship",
-                         "infertility", "intimacy", "pregnancy", "parenting within marriage",
-                         "communication with spouse", "marital issues", "spousal support"],
-            "Health": ["Healing", "illness", "disease", "sickness", "Mental Health", "injury", "surgery",
-                       "physical health", "medical condition", "health recovery", "health challenge"],
-            "Anxiety": ["Fear", "Worry", "Apprehension", "anxiety-induced stress", "Uncertainty",
-                        "panic attacks", "generalized anxiety", "social anxiety"],
-            "Deliverance": ["Principalities and Powers", "strange spirits", "ancestral spirits", "Village people"],
-            "Finances": ["Debt", "Financial struggles", "Poverty", "Unemployment", "Financial insecurity"],
-            "Favour": ["God's favour", "Job opportunities", "Business success", "professional networking",
-                       "business connections", "Promotions", "Career advancements", "industry recognition"]
+            "Marriage": ["marriage", "spouse", "husband", "wife", "partner", "marital harmony", "love and unity",
+                         "marital issues", "communication in marriage", "intimacy", "trust in marriage", "infidelity",
+                         "reconciliation", "strengthening our bond", "family unity", "marriage restoration",
+                         "spousal support", "divorce prevention", "healthy relationship"],
+            "Career": ["job", "work", "employment", "career path", "professional growth", "job opportunity",
+                       "workplace success", "career advancement", "promotion", "job stability", "work challenges",
+                       "career guidance", "professional skills", "job satisfaction", "work-life balance", "new job",
+                       "career transition", "success at work"],
+            "Finances": ["financial breakthrough", "debt relief", "financial stability", "money problems", "provision",
+                         "poverty", "unemployment", "financial struggles", "prosperity", "economic hardship",
+                         "financial blessing", "budget management", "income increase", "financial security",
+                         "business success", "financial wisdom", "debt cancellation"],
+            "Health": ["healing", "illness", "sickness", "disease", "mental health", "physical health", "recovery",
+                       "medical condition", "surgery", "health challenge", "chronic illness", "pain relief",
+                       "emotional healing", "wellness", "strength and health", "medical treatment",
+                       "restoration of health", "healing miracle"],
+            "Children": ["children", "kids", "family", "parenting", "child's future", "protection for children",
+                         "children's health", "guidance for kids", "child's education", "children's safety",
+                         "raising children", "child behavior", "teen challenges", "blessing for children",
+                         "child's faith", "family harmony", "children's success"],
+            "Direction": ["guidance", "God's will", "direction in life", "clarity", "purpose", "decision making",
+                          "path forward", "divine guidance", "life choices", "wisdom", "spiritual direction",
+                          "finding purpose", "life path", "God's plan", "discernment", "clear path", "life decisions"],
+            "Spiritual_Attack": ["village people"]
         }
-        self.prayer_feedback = {
-            "Marriage": {
-                "verses": ["1 Corinthians 13:4-7", "Ephesians 4:2-3", "Proverbs 3:3-4"],
-                "prayer": "Lord, strengthen this union with patience and understanding. Help them love as You love. Amen.",
-                "contact": "Church Marriage Helpline: 1-800-327-4357"
-            },
-            "Health": {
-                "verses": ["Jeremiah 30:17", "3 John 1:2", "Psalm 103:2-3"],
-                "prayer": "Heavenly Father, bring restoration and wholeness. Guide medical staff and comfort the afflicted. Amen.",
-                "contact": "Church Health Prayer Helpline: 1-888-230-2637"
-            },
-            "Anxiety": {
-                "verses": ["Philippians 4:6-7", "1 Peter 5:7", "Matthew 6:34"],
-                "prayer": "Prince of Peace, calm troubled hearts. Help them cast all cares on You. Amen.",
-                "contact": "Church Anxiety Helpline: 1-800-950-6264"
-            },
-            "Deliverance": {
-                "verses": ["Psalm 107:2", "2 Corinthians 1:10", "Psalm 34:17"],
-                "prayer": "Father God, deliver me from any existing powers working against me, in Jesus' name, Amen.",
-                "contact": "Deliverance Ministers. Call: 1-800-A-FAMILY"
-            },
-            "Finances": {
-                "verses": ["Deuteronomy 8:18", "Malachi 3:10", "Philippians 4:19"],
-                "prayer": "Dear Heavenly Father, I thank you for your promise to bless me financially. Help me trust in your provision and seek your Kingdom first, in Jesus' name, Amen.",
-                "contact": "Finance intercessors helpline: 1-800-A-FAMILY"
-            },
-            "Favour": {
-                "verses": ["Psalm 5:12", "Luke 2:52", "Proverbs 3:3-4"],
-                "prayer": "Heavenly Father, I ask for your favour to rest upon me, in Jesus' name, Amen.",
-                "contact": "Favour intercessors: 1-800-A-FAMILY"
-            },
-            "Default": {
-                "verses": ["Proverbs 22:6", "Psalm 127:3", "Deuteronomy 6:6-7"],
-                "prayer": "Father Lord, help me to pray to you in spirit and in truth, in Jesus' name, Amen.",
-                "contact": "Focus on the prayer: 1-800-A-FAMILY"
-            }
-        }
-        self.similarity_threshold = 0.75
+        self.similarity_threshold = 0.76
         self.collection_name = "prayer_topics"
         self.QDRANT_URL = settings.QDRANT_URL
         self.QDRANT_API_KEY = settings.QDRANT_API_KEY
+        self.S3_BUCKET_NAME = settings.S3_BUCKET_NAME
+        self.S3_FILE_KEY = "prayer_feedback.json"
         # Initialize Async Qdrant client
         try:
             self.client = AsyncQdrantClient(
@@ -254,13 +235,13 @@ class PrayerRelation:
         if not query.strip():
             logger.warning("Empty query provided")
             return {"query": query, "threshold": self.similarity_threshold, "decision": "not_found",
-                    "most_likely_category": "Default", "max_category_score": 0.0, "scores": {}}
+                    "most_likely_category": "Others", "max_category_score": 0.0, "scores": {}}
         scores = await self.calculate_similarity(query)
         max_category_score = max(
             scores["category_scores"].values()) if scores["category_scores"] else 0.0
         decision = "found" if max_category_score >= self.similarity_threshold else "not_found"
         most_likely_category = max(
-            scores["category_scores"], key=scores["category_scores"].get) if scores["category_scores"] else "Default"
+            scores["category_scores"], key=scores["category_scores"].get) if scores["category_scores"] else "Others"
         explanation = {
             "query": query,
             "threshold": self.similarity_threshold,
@@ -272,19 +253,121 @@ class PrayerRelation:
         logger.info(f"Similarity explanation for '{query}': {scores}")
         return explanation
 
-    async def return_help(self, query: str) -> str:
+    async def _load_prayer_feedback(self) -> Dict:
+        """Load prayer feedback from S3."""
+        try:
+            s3_client = boto3.client(
+                's3',
+                aws_access_key_id=settings.S3_BUCKET_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.S3_BUCKET_SECRET_ACCESS_KEY
+            )
+            response = s3_client.get_object(
+                Bucket=self.S3_BUCKET_NAME,
+                Key=self.S3_FILE_KEY
+            )
+            data = json.loads(response['Body'].read().decode('utf-8'))
+            return data.get('prayer_info', {})
+        except ClientError as e:
+            logger.error(f"Failed to load prayer feedback from S3: {str(e)}")
+            return {
+                "Others": {
+                    "prayer": "verses: Proverbs 22:6, Psalm 127:3, Deuteronomy 6:6-7\n\nPrayer: Father Lord, help me to pray to you in spirit and in truth, in Jesus' name, Amen.",
+                    "contact": "Focus on the prayer: 1-800-A-FAMILY"
+                }
+            }
+        except Exception as e:
+            logger.error(
+                f"Unexpected error loading prayer feedback from S3: {str(e)}")
+            return {
+                "Others": {
+                    "prayer": "verses: Proverbs 22:6, Psalm 127:3, Deuteronomy 6:6-7\n\nPrayer: Father Lord, help me to pray to you in spirit and in truth, in Jesus' name, Amen.",
+                    "contact": "Focus on the prayer: 1-800-A-FAMILY"
+                }
+            }
+
+    def is_general_prayer_request(self, user_input: str) -> bool:
+        """
+        Check if the user input is a general prayer request without a specific topic.
+
+        Args:
+            user_input (str): The user's input text
+            allowed_topics (Dict[str, List[str]], optional): Dictionary of topic-specific keywords
+                (e.g., from PrayerRelation.allowed_topics). If None, only checks general phrases.
+
+        Returns:
+            bool: True if the input is a general prayer request, False otherwise
+        """
+
+        GENERAL_PRAYER_PHRASES = {
+            "i need prayer",
+            "want prayer",
+            "prayer",
+            "need prayer",
+            "pray for me",
+            "please pray",
+            "request prayer",
+            "prayer request",
+            "i want prayer",
+            "need to pray",
+            "ask for prayer",
+            "seeking prayer"
+        }
+
+        # Normalize input: lowercase and strip whitespace
+        user_input = user_input.lower().strip()
+        if not user_input:
+            logger.warning("Empty user input provided")
+            return False
+
+        # Check if input matches any general prayer phrase
+        if user_input in GENERAL_PRAYER_PHRASES:
+            return True
+
+    async def return_help(self, query: str, phone_number: str, state: str):
+        user_number = phone_number
+        print("Entered prayer return_help function")
         """Return prayer feedback based on the most relevant topic asynchronously."""
         values = await self.explain_similarity(query)
-        if values["decision"] != "found":
-            department = self.prayer_feedback["Default"]
-        else:
-            department = self.prayer_feedback[values['most_likely_category']]
-        response_string = f"""Hello, please read these Bible verses we believe will help with your situation: {', '.join(department['verses'])}.
-Also, pray this prayer: {department['prayer']}
-Please call this number; they will pray with you: {department['contact']}
-While waiting for their response, please read the Bible verses provided and pray. God bless you."""
-        # logger.info(f"Returning help for query '{query}': {response_string}")
-        return response_string
+
+        if values["decision"] != "found" or self.is_general_prayer_request(query):
+            print("Topic not found")
+            try:
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=settings.S3_BUCKET_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.S3_BUCKET_SECRET_ACCESS_KEY
+                )
+                response = s3_client.get_object(
+                    Bucket=self.S3_BUCKET_NAME,
+                    Key=self.S3_FILE_KEY
+                )
+                data = json.loads(response['Body'].read().decode('utf-8'))
+                return (data.get('prayer_details', ''), "prayer")
+            except ClientError as e:
+                logger.error(
+                    f"Failed to load prayer details from S3: {str(e)}")
+                return ("Something went wrong while trying to process your request", state)
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error loading prayer details from S3: {str(e)}")
+                return ("Something went wrong while trying to process your request", state)
+
+        prayer_info = await self._load_prayer_feedback()
+        most_likely_category = values['most_likely_category']
+        print("Topic found")
+        department = prayer_info.get(
+            most_likely_category, prayer_info.get("Others", {}))
+        response_string = f"Kindly meditate on these; while we provide you with a number to speak with: {department.get('prayer', '')}."
+
+        prayer_number = department.get("contact", "")
+        text = prayer_number
+        additional_data = {"priority": "high"}
+
+        success = await schedule_number_send(user_number, text, additional_data)
+        if not success:
+            print("Failed to schedule task.")
+
+        return (response_string, state)
 
     async def add_topic_category(self, category: str, keywords: List[str]):
         """Add new topic category and keywords to Qdrant at runtime asynchronously."""
@@ -317,8 +400,8 @@ if __name__ == "__main__":
     async def test_prayer_relation():
         try:
             x = PrayerRelation()
-            result = await x.return_help("I need prayer for my depression")
-            print(result)
+            res = await x.return_help("I want prayer", "2349094540644")
+            print(res)
         except Exception as e:
             print(f"An error occurred: {e}")
 
