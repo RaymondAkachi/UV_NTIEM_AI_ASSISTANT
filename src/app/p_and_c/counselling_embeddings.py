@@ -68,6 +68,21 @@ class CounsellingRelation:
 
         self.QDRANT_URL = settings.QDRANT_URL
         self.QDRANT_API_KEY = settings.QDRANT_API_KEY
+        self.default_entries = {
+            "i need counselling",
+            "want counselling",
+            "counselling",
+            "need counselling",
+            "counselling for me",
+            "please counselling",
+            "request counselling",
+            "counselling request",
+            "i want counselling",
+            "in need of counselling",
+            "ask for counselling",
+            "seeking counselling"
+        }
+
         # Initialize Async Qdrant client
         try:
             self.client = AsyncQdrantClient(
@@ -276,9 +291,8 @@ class CounsellingRelation:
         if not query.strip():
             logger.warning("Empty query provided")
             return "Please provide a valid query to receive counseling feedback."
-
         values = await self.explain_similarity(query)
-        if values["max_category_score"] < self.similarity_threshold:
+        if values["max_category_score"] < self.similarity_threshold or query in self.default_entries:
             prayer, number = await self._load_counselling_info("Others")
         else:
             prayer, number = await self._load_counselling_info(values['most_likely_category'])

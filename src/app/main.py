@@ -220,12 +220,13 @@ async def whatsapp_handler(request: Request, validators: dict = Depends(get_vali
             response = results['response']
             user_request = results['user_request']
             app_state = results['app_state']
-            success = await process_message_response(from_number, response, from_voice_note, output_format, user_request, app_state)
+            # success = await process_message_response(from_number, response, from_voice_note, output_format, user_request, app_state)
+            print(response)
 
-            if not success:
-                return Response(content="Failed to send message", status_code=500)
+            # if not success:
+            #     return Response(content="Failed to send message", status_code=500)
 
-            return Response(content=json.dumps(success), status_code=200)
+            return Response(content=json.dumps(response), status_code=200)
         else:
             Response(content="Recieved webhook event", status_code=200)
 

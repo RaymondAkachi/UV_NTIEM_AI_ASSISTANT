@@ -503,12 +503,13 @@ async def query_rewrite(user_question, user_name, user_phone_number):
     else:
         result = await rewriters_func(chat_history, user_question, state)
     result['state'] = 'normal'
+    print(result)
     return result
 
 
-# if __name__ == "__main__":
-    # x = asyncio.run(update_chat_history("2349094540644", "Hello I need prayer",
-    #                 "Please what exactly do you need prayer for?", "prayer"))
+if __name__ == "__main__":
+    x = asyncio.run(update_chat_history("2349094540644", "Hello",
+                    "Hi there how are you doing today?", "normal"))
 
     # async def update_chat_history(user_id: str, user_message: str, bot_response: str, state: str = "normal"):
     # async def test():
@@ -517,8 +518,8 @@ async def query_rewrite(user_question, user_name, user_phone_number):
     #     result = await chain.ainvoke({'chat_history': history, "input": "User: Health"})
     #     print(result)
     # asyncio.run(test())
-if __name__ == "__main__":
-    async def update_test():
-        res_1 = await query_rewrite('Who is Apostle Uche Raymond', "Akachi", "2349094540644")
-        print(res_1)
-    asyncio.run(update_test())
+# if __name__ == "__main__":
+#     async def update_test():
+#         res_1 = await query_rewrite('Who is Apostle Uche Raymond', "Akachi", "2349094540644")
+#         print(res_1)
+#     asyncio.run(update_test())
